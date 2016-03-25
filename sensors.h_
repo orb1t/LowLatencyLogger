@@ -1,0 +1,178 @@
+#ifndef sensors_h
+#define sensors_h
+
+#include<Wire.h>
+
+
+#include <SFE_BMP180.h>
+#include <Wire.h>
+
+// You will need to create an SFE_BMP180 object, here called "pressure":
+
+SFE_BMP180 pressure;
+
+//double baseline; // baseline pressure
+#define ALTITUDE 55.0 // Altitude of SparkFun's HQ in Boulder, CO. in meters
+double baseline = 0; // baseline pressure
+struct bmp_data_t {
+  double Temp,Prsr,Alt;   // 96 bits = 12 bytes
+};
+
+#define BMP_REC_SZ sizeof ( bmp_data_t )
+
+struct bmp_data_b {
+  //unsigned long time; // 32 bit = 4 bytes
+  //unsigned short adc[ADC_DIM];  // 5 * 16 bit = 80 bit = 10 bytes
+  // TTL = 112 bit = 14 bytes
+  int8_t buf[BMP_REC_SZ];
+};
+
+#define BMP_PRECISION 0
+
+  
+
+void bmp_read ( bmp_data_t* dt_ptr );
+
+void bmp_setup( bmp_data_t* dt_ptr )
+{
+  
+  if (pressure.begin(0)) {
+    //getPressure();
+    bmp_read ( dt_ptr );
+    baseline = dt_ptr->Prsr;
+    Serial.print("BMP180 init pressure: ");
+    Serial.print(baseline);
+    Serial.println(" mb\n\n");
+  }else  {
+    Serial.println("BMP180 init fail\n");
+    while(1); // Pause forever.
+  }
+}
+
+
+
+
+void err() {
+  Serial.println("error retrieving pressure measurement\n");
+}
+
+void bmp_read(bmp_data_t* dt_ptr)
+{
+  char status;
+
+  if ((status = pressure.startTemperature() )!= 0) {
+    delay(status);
+    if ((status = pressure.getTemperature(dt_ptr->Temp))!= 0) {
+      if ((status = pressure.startPressure(BMP_PRECISION))!= 0) {
+        delay(status);
+        if ((status = pressure.getPressure(dt_ptr->Prsr,dt_ptr->Temp))!= 0) {
+          //dt_ptr->Temp = dt_ptr->Temp /340.00+36.53
+          if ( baseline != 0 ) {
+            dt_ptr->Alt = pressure.altitude(dt_ptr->Prsr,baseline);
+          }
+          //return(P);
+        } else err();
+      } else err();
+    } else err();
+  } else err();
+
+  /*status = pressure.startTemperature();
+  if (status != 0)
+  {
+    // Wait for the measurement to complete:
+
+    delay(status);
+
+    status = pressure.getTemperature(dt_ptr->Temp);
+    if (status != 0)
+    {
+      status = pressure.startPressure(3);
+      if (status != 0)
+      {
+        // Wait for the measurement to complete:
+        delay(status);
+
+        status = pressure.getPressure(dt_ptr->Prsr,dt_ptr->Temp);
+        if (status != 0)
+        {
+          //return(P);
+            // Show the relative altitude difference between
+  // the new reading and the baseline reading:
+            double p0 = pressure.sealevel(dt_ptr->Prsr,ALTITUDE);
+
+            dt_ptr->Alt = pressure.altitude(dt_ptr->Prsr, p0);
+        }
+        else Serial.println("error retrieving pressure measurement\n");
+      }
+      else Serial.println("error starting pressure measurement\n");
+    }
+    else Serial.println("error retrieving temperature measurement\n");
+  }
+  else Serial.println("error starting temperature measurement\n");*/
+}
+
+
+void bmp_dump(Print* pr, bmp_data_t* dt_ptr)
+{
+  pr->print(dt_ptr->Temp);
+  pr->write(',');
+  pr->print(dt_ptr->Prsr);
+  pr->write(',');
+  pr->print(dt_ptr->Alt);
+  pr->write(",");
+}
+
+
+
+//=============================================================================
+const int MPU_addr=0x68;  // I2C address of the MPU-6050
+struct acc_data_t {   // 112 bits = 14 bytes
+  int16_t AcX,AcY,AcZ,
+  Tmp,
+  GyX,GyY,GyZ;
+};
+struct acc_data_t1 {
+  int16_t accl [ 7 ];
+};
+//int16_t AcX,AcY,AcZ,Tmp,GyX,GyY,GyZ;
+void accel_setup(){
+  Wire.begin();
+  Wire.beginTransmission(MPU_addr);
+  Wire.write(0x6B);  // PWR_MGMT_1 register
+  Wire.write(0);     // set to zero (wakes up the MPU-6050)
+  Wire.endTransmission(true);
+}
+void accel_read(acc_data_t* dt_ptr){
+  Wire.beginTransmission(MPU_addr);
+  Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_addr,14,true);  // request a total of 14 registers
+  dt_ptr->AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)    
+  dt_ptr->AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
+  dt_ptr->AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
+  dt_ptr->Tmp = ( Wire.read() << 8 | Wire.read());  // 0x41 (TEMP_OUT_H) & 0x42 (TEMP_OUT_L)
+  dt_ptr->GyX=Wire.read()<<8|Wire.read();  // 0x43 (GYRO_XOUT_H) & 0x44 (GYRO_XOUT_L)
+  dt_ptr->GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
+  dt_ptr->GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L)
+}
+
+void accel_dump(Print* pr, acc_data_t1* dt_ptr){
+  int i = 0;
+  for ( i = 0; i < ( sizeof ( acc_data_t ) / sizeof ( int16_t ) ) - 1; i++ ) {
+    if ( i == 3 ) {
+      pr->print(dt_ptr->accl[i] / 340.00 + 36.53);
+    } else
+      pr->print(dt_ptr->accl[i]);
+    pr->write(',');
+  }
+  pr->print(dt_ptr->accl[i]);
+  /*Serial.print("AcX = "); Serial.print(dt_ptr->AcX);
+  Serial.print(" | AcY = "); Serial.print(dt_ptr->AcY);
+  Serial.print(" | AcZ = "); Serial.print(dt_ptr->AcZ);
+  Serial.print(" | Tmp = "); Serial.print(dt_ptr->Tmp/340.00+36.53);  //equation for temperature in degrees C from datasheet
+  Serial.print(" | GyX = "); Serial.print(dt_ptr->GyX);
+  Serial.print(" | GyY = "); Serial.print(dt_ptr->GyY);
+  Serial.print(" | GyZ = "); Serial.println(dt_ptr->GyZ);  */
+}
+
+#endif
